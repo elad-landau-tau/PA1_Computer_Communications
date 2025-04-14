@@ -14,6 +14,22 @@
 
 using namespace std;
 
+/**
+ * @brief Establishes a connection to a specified IP address and port.
+ *
+ * This function creates a socket, sets up the address structure, and connects
+ * to the specified server using the provided IP address and port number.
+ *
+ * @param ip The IP address of the server to connect to, as a null-terminated string.
+ *           It should be in IPv4 dotted-decimal notation (e.g., "192.168.1.1").
+ * @param port The port number of the server to connect to.
+ * @return The file descriptor of the connected socket on success, or a negative
+ *         value on failure.
+ *
+ * @note The caller is responsible for closing the socket after use.
+ * @note This function does not handle errors; ensure proper error checking
+ *       is implemented when using this function.
+ */
 int connect_to_channel(const char* ip, int port) {
     int sock = socket(AF_INET, SOCK_STREAM, 0);
     sockaddr_in addr{};
@@ -24,6 +40,39 @@ int connect_to_channel(const char* ip, int port) {
     return sock;
 }
 
+/**
+ * @brief Sends a file over a network channel using a custom protocol with retransmissions and backoff.
+ * 
+ * This function reads a file, splits it into frames, and sends the frames to a specified IP and port.
+ * It implements a retransmission mechanism with exponential backoff in case of transmission failures.
+ * 
+ * @param ip The IP address of the receiver.
+ * @param port The port number of the receiver.
+ * @param filename The path to the file to be sent.
+ * @param frame_size The size of each frame's payload in bytes.
+ * @param slot_time The time slot duration for backoff in milliseconds.
+ * @param seed The seed for the random number generator used in backoff.
+ * @param timeout The timeout duration for waiting for an acknowledgment in seconds.
+ * 
+ * @details
+ * - The file is read in binary mode and split into frames of the specified payload size.
+ * - Each frame is sent with a sequence number and a sender ID.
+ * - The function waits for an acknowledgment for each frame. If no acknowledgment is received
+ *   within the timeout period, the frame is retransmitted with an exponential backoff.
+ * - The process stops after 10 retransmission attempts per frame or when all frames are acknowledged.
+ * - The function logs the result of the transmission, including success/failure, total transfer time,
+ *   average and maximum transmissions per frame, and average bandwidth.
+ * 
+ * @note
+ * - The function assumes the existence of helper functions such as `connect_to_channel`, `is_noise_frame`,
+ *   and constants like `MAX_PAYLOAD_SIZE`.
+ * - The sender process ID is used as the sender ID in the frame header.
+ * - The function uses `std::chrono` for timing and `std::default_random_engine` for random backoff.
+ * 
+ * @warning
+ * - Ensure the file exists and is accessible before calling this function.
+ * - The function terminates early if a frame cannot be successfully transmitted after 10 attempts.
+ */
 void send_file(const char* ip, int port, const char* filename, int frame_size, int slot_time, int seed, int timeout) {
     ifstream file(filename, ios::binary);
     if (!file) {
@@ -53,7 +102,7 @@ void send_file(const char* ip, int port, const char* filename, int frame_size, i
     for (size_t i = 0; i < frames.size(); ++i) {
         int attempts = 0;
         Frame& frame = frames[i];
-        frame.header.sender_id = getpid();
+        frame.header.sender_id = getpid(); // Unique sender ID by process ID
         bool acked = false;
 
         while (attempts < 10) {

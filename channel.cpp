@@ -24,6 +24,23 @@ struct ClientInfo {
 vector<ClientInfo> clients;
 unordered_map<int, ClientInfo*> sock_to_client;
 
+/**
+ * @brief Sets up a server socket to listen for incoming connections.
+ * 
+ * This function creates a non-blocking server socket, binds it to the specified
+ * port, and prepares it to listen for incoming client connections.
+ * 
+ * @param port The port number on which the server will listen for connections.
+ * @param listener A reference to an integer where the created server socket's
+ *                 file descriptor will be stored.
+ * 
+ * @note The socket is configured with the SO_REUSEADDR option to allow reuse
+ *       of local addresses. The listener socket is set to non-blocking mode.
+ * 
+ * @throws This function does not explicitly handle errors. It is the caller's
+ *         responsibility to check for errors in socket creation, binding, and
+ *         other operations.
+ */
 void setup_server(int port, int& listener) {
     listener = socket(AF_INET, SOCK_STREAM, 0);
     int opt = 1;
@@ -39,6 +56,30 @@ void setup_server(int port, int& listener) {
     fcntl(listener, F_SETFL, O_NONBLOCK);
 }
 
+/**
+ * @brief Handles the main loop for a communication channel, managing client connections,
+ *        receiving frames, and broadcasting frames or noise based on channel activity.
+ * 
+ * @param port The port number on which the server listens for incoming connections.
+ * @param slot_time The time slot duration (in milliseconds) used for the select timeout.
+ * 
+ * This function performs the following tasks:
+ * - Sets up a server socket to listen for incoming client connections.
+ * - Uses the `select` system call to monitor multiple sockets for activity.
+ * - Accepts new client connections and adds them to the list of managed clients.
+ * - Receives frames from clients and determines whether to broadcast the frame or
+ *   send a noise frame in case of collisions.
+ * - Tracks the number of frames successfully sent and collisions for each client.
+ * 
+ * Behavior:
+ * - If only one client sends a frame during a time slot, the frame is broadcast to all clients.
+ * - If multiple clients send frames simultaneously, a noise frame is sent to all clients,
+ *   and collisions are recorded for the involved clients.
+ * 
+ * Note:
+ * - The function runs indefinitely in a loop and must be terminated externally.
+ * - Non-blocking sockets are used for client connections.
+ */
 void channel_loop(int port, int slot_time) {
     int listener;
     setup_server(port, listener);

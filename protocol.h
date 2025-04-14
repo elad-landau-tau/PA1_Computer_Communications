@@ -23,6 +23,14 @@ struct Frame {
     char payload[MAX_PAYLOAD_SIZE];
 };
 
+/**
+ * @brief Creates a noise frame by initializing the given frame with noise-specific values.
+ * 
+ * This function sets the sender ID of the frame's header to the noise flag, 
+ * sequence number to 0, length to 0, and fills the payload with zeros.
+ * 
+ * @param frame Reference to the Frame object to be initialized as a noise frame.
+ */
 inline void create_noise_frame(Frame& frame) {
     frame.header.sender_id = NOISE_FLAG;
     frame.header.seq_number = 0;
