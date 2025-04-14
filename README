@@ -1,0 +1,45 @@
+// README
+This project implements a simplified simulation of an ALOHA-style MAC protocol using TCP sockets in C++.
+
+## Files
+- `server.cpp`: The server application that sends a file in fixed-size frames using TCP to a shared channel.
+- `channel.cpp`: The channel application that simulates the shared communication medium.
+- `protocol.h`: Shared definitions for frame headers and payloads.
+- `Makefile`: For building the project.
+
+## How to Compile
+Run:
+```bash
+make
+```
+This will generate:
+- `my_Server`
+- `my_channel`
+
+## How to Run
+**Start the channel first:**
+```bash
+./my_channel <chan_port> <slot_time>
+```
+
+**Start one or more servers:**
+```bash
+./my_Server <chan_ip> <chan_port> <file_name> <frame_size> <slot_time> <seed> <timeout>
+```
+
+## Notes
+- The channel handles collisions and simulates a shared medium.
+- The server uses exponential backoff when it detects a collision.
+- The frame includes a header for sender ID and sequence number.
+- The simulation outputs statistics such as bandwidth, success, and retransmissions.
+
+## Example
+```bash
+./my_channel 6342 100
+./my_Server 127.0.0.1 6342 testfile.txt 1500 1 123 5
+```
+
+## Cleaning Up
+```bash
+make clean
+```
