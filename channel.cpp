@@ -11,6 +11,7 @@
 #include <fcntl.h>
 #include <arpa/inet.h>
 #include <sys/select.h>
+#include <signal.h>
 
 using namespace std;
 
@@ -133,11 +134,24 @@ void channel_loop(int port, int slot_time) {
     }
 }
 
+void on_ctrl_c(int signal) {
+    (void)signal;
+    for (auto& client : clients) {
+        cout << "From ?.?.?.? port ????: " << client.frames << " frames, " << client.collisions << " collisions" << endl;
+    }
+    exit(0);
+}
+
 int main(int argc, char* argv[]) {
     if (argc != 3) {
         cerr << "Usage: ./my_channel.exe <chan_port> <slot_time>" << endl;
         return 1;
     }
+    struct sigaction ctrl_c_action = {};
+    ctrl_c_action.sa_handler = on_ctrl_c;
+    sigemptyset(&ctrl_c_action.sa_mask);
+    ctrl_c_action.sa_flags = 0;
+    sigaction(SIGINT, &ctrl_c_action, nullptr);
     channel_loop(stoi(argv[1]), stoi(argv[2]));
     return 0;
 }
