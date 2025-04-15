@@ -1,15 +1,26 @@
-// Makefile
 # Simple Makefile to build server and channel applications
+
+ifeq ($(OS), Windows_NT)
+	MY_SERVER=my_Server.exe
+	MY_CHANNEL=my_channel.exe
+else
+	MY_SERVER=my_Server
+	MY_CHANNEL=my_channel
+endif
+
 CXX = g++
 CXXFLAGS = -std=c++17 -Wall -Wextra -O2
 
-all: my_Server.exe my_channel.exe
+.PHONY: all clean
 
-my_Server.exe: server.cpp
+all: $(MY_SERVER) $(MY_CHANNEL)
+
+$(MY_SERVER): server.cpp
 	$(CXX) $(CXXFLAGS) server.cpp -o my_Server
 
-my_channel.exe: channel.cpp
+$(MY_CHANNEL): channel.cpp
 	$(CXX) $(CXXFLAGS) channel.cpp -o my_channel
 
 clean:
-	rm -f my_Server.exe my_channel.exe
+	rm -f $(MY_SERVER) $(MY_CHANNEL)
+
