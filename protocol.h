@@ -5,41 +5,31 @@
 #include <stdint.h>
 #include <string.h>
 
-#define MAX_FRAME_SIZE 1500
-#define HEADER_SIZE sizeof(FrameHeader)
-#define MAX_PAYLOAD_SIZE (MAX_FRAME_SIZE - HEADER_SIZE)
-#define NOISE_FLAG 0xFFFFFFFF
+#define NOISE_FLAG 0xFF
+#define DATA_FLAG 0x01
+#define IPv4_FLAG 0x0800
 
 // Custom frame header
 struct FrameHeader {
-    uint32_t sender_id;      // unique per server (e.g. hash of IP:port)
-    uint32_t seq_number;     // sequence number of the frame
-    uint32_t length;         // length of payload in bytes
+    uint8_t dest_id[6];                   // destination identifier (MAC-style)
+    uint8_t source_id[6];                 // source identifier (MAC-style)
+    uint16_t ether_type = IPv4_FLAG;      // type of the next layer, like 0x0800 for IPv4
+    uint8_t payload_type = DATA_FLAG;     // type of payload, like 0x01 for data or 0XFF for noise
+    uint32_t length;                      // length of payload
 };
 
-// Frame structure
-struct Frame {
-    FrameHeader header;
-    char payload[MAX_PAYLOAD_SIZE];
-};
-
-/**
- * @brief Creates a noise frame by initializing the given frame with noise-specific values.
- * 
- * This function sets the sender ID of the frame's header to the noise flag, 
- * sequence number to 0, length to 0, and fills the payload with zeros.
- * 
- * @param frame Reference to the Frame object to be initialized as a noise frame.
- */
-inline void create_noise_frame(Frame& frame) {
-    frame.header.sender_id = NOISE_FLAG;
-    frame.header.seq_number = 0;
-    frame.header.length = 0;
-    memset(frame.payload, 0, MAX_PAYLOAD_SIZE);
+// Function to create a noise frame
+inline void create_noise_frame(FrameHeader& frameHeader) {
+    memset(frameHeader.dest_id, 0, sizeof(frameHeader.dest_id));
+    memset(frameHeader.source_id, 0, sizeof(frameHeader.source_id));
+    frameHeader.payload_type = 0xFF; // Noise type
+    frameHeader.length = 0;
+    memset(frameHeader.payload, 0, sizeof(frameHeader.payload));
 }
 
-inline bool is_noise_frame(const Frame& frame) {
-    return frame.header.sender_id == NOISE_FLAG;
+// Function to check if a frame is a noise frame
+inline bool is_noise_frame(const FrameHeader& frameHeader) {
+    return frameHeader.payload_type == 0xFF;
 }
 
 #endif
