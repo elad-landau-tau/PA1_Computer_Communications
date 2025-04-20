@@ -5,9 +5,17 @@
 #include <stdint.h>
 #include <string.h>
 
+#define HEADER_SIZE sizeof(FrameHeader)
+
 #define NOISE_FLAG 0xFF
 #define DATA_FLAG 0x01
 #define IPv4_FLAG 0x0800
+
+// Custom frame structure
+struct Frame {
+    FrameHeader header;
+    char* payload;
+};
 
 // Custom frame header
 struct FrameHeader {
@@ -15,21 +23,24 @@ struct FrameHeader {
     uint8_t source_id[6];                 // source identifier (MAC-style)
     uint16_t ether_type = IPv4_FLAG;      // type of the next layer, like 0x0800 for IPv4
     uint8_t payload_type = DATA_FLAG;     // type of payload, like 0x01 for data or 0XFF for noise
-    uint32_t length;                      // length of payload
+    uint32_t seq_number;                  // sequence number for ordering
+    uint32_t payload_length;              // length of payload
 };
 
 // Function to create a noise frame
-inline void create_noise_frame(FrameHeader& frameHeader) {
-    memset(frameHeader.dest_id, 0, sizeof(frameHeader.dest_id));
-    memset(frameHeader.source_id, 0, sizeof(frameHeader.source_id));
-    frameHeader.payload_type = 0xFF; // Noise type
-    frameHeader.length = 0;
-    memset(frameHeader.payload, 0, sizeof(frameHeader.payload));
+inline void create_noise_frame(Frame& frame) {
+    frame.header.dest_id = {0, 0, 0, 0, 0, 0}; // No specific destination for noise
+    frame.header.source_id = {0, 0, 0, 0, 0, 0}; // No specific source for noise
+    frame.header.seq_number = 0; // No sequence number for noise
+    frame.header.payload_type = NOISE_FLAG;
+    frame.header.payload_length = 0;
+    frame.payload = nullptr; // No payload for noise frames
+
 }
 
 // Function to check if a frame is a noise frame
-inline bool is_noise_frame(const FrameHeader& frameHeader) {
-    return frameHeader.payload_type == 0xFF;
+inline bool is_noise_frame(const Frame& frame) {
+    return frame.header.payload_type == NOISE_FLAG;
 }
 
 #endif

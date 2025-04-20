@@ -14,6 +14,33 @@
 
 using namespace std;
 
+#define MAX_ATTEMPTS 10
+
+void set_sorce_dest_id(Frame& frame) {
+    // Set the sender ID in the frame header to the process ID
+    frame.header.source_id[0] = getpid() & 0xFF;
+    frame.header.source_id[1] = (getpid() >> 8) & 0xFF;
+    frame.header.source_id[2] = (getpid() >> 16) & 0xFF;
+    frame.header.source_id[3] = (getpid() >> 24) & 0xFF;
+    frame.header.source_id[4] = 0;
+    frame.header.source_id[5] = 0;
+    // Set the destination ID in the frame header to the receiver's address randomly
+    frame.header.dest_id[0] = rand() % 256;
+    frame.header.dest_id[1] = rand() % 256;
+    frame.header.dest_id[2] = rand() % 256;
+    frame.header.dest_id[3] = rand() % 256;
+    frame.header.dest_id[4] = 0;
+    frame.header.dest_id[5] = 0;
+}
+
+bool my_sorce_id(Frame& frame) {
+    // Check if the source ID in the frame header matches the process ID
+    return frame.header.source_id[0] == (getpid() & 0xFF) &&
+           frame.header.source_id[1] == ((getpid() >> 8) & 0xFF) &&
+           frame.header.source_id[2] == ((getpid() >> 16) & 0xFF) &&
+           frame.header.source_id[3] == ((getpid() >> 24) & 0xFF);
+}
+
 /**
  * @brief Establishes a connection to a specified IP address and port.
  *
@@ -75,18 +102,30 @@ int connect_to_channel(const char* ip, int port) {
  */
 void send_file(const char* ip, int port, const char* filename, int frame_size, int slot_time, int seed, int timeout) {
     ifstream file(filename, ios::binary);
-    if (!file) {
+
+    if (!file ) {
         cerr << "Error: Cannot open file " << filename << endl;
         return;
     }
 
+    int file_size = 0;
+    file.seekg(0, ios::end);
+    file_size = file.tellg();
+    file.seekg(0, ios::beg);
+
+    if (file_size <= 0) {
+        cerr << "Error: File is empty or cannot be read." << endl;
+        return;
+    }
+
     vector<Frame> frames;
-    int seq = 0;
+    uint32_t seq = 0;
     while (!file.eof()) {
         Frame frame;
         frame.header.seq_number = seq++;
-        file.read(frame.payload, MAX_PAYLOAD_SIZE);
-        frame.header.length = file.gcount();
+        frame.header.payload_length = min(frame_size, (int)(file.tellg() - file.tellg()));
+        frame.payload = new char[frame.header.payload_length];
+        file.read(frame.payload, frame.header.payload_length);
         frames.push_back(frame);
     }
     file.close();
@@ -102,12 +141,13 @@ void send_file(const char* ip, int port, const char* filename, int frame_size, i
     for (size_t i = 0; i < frames.size(); ++i) {
         int attempts = 0;
         Frame& frame = frames[i];
-        frame.header.sender_id = getpid(); // Unique sender ID by process ID
         bool acked = false;
 
-        while (attempts < 10) {
+        set_sorce_dest_id(frame);
+
+        while (attempts < MAX_ATTEMPTS) {
             ++attempts;
-            send(sock, &frame, sizeof(FrameHeader) + frame.header.length, 0);
+            send(sock, &frame, HEADER_SIZE + frame.header.payload_length, 0);
             Frame response;
             fd_set fds;
             FD_ZERO(&fds);
@@ -117,7 +157,7 @@ void send_file(const char* ip, int port, const char* filename, int frame_size, i
 
             if (ret > 0) {
                 recv(sock, &response, sizeof(response), 0);
-                if (!is_noise_frame(response) && response.header.seq_number == frame.header.seq_number) {
+                if (!is_noise_frame(response) && response.header.seq_number == frame.header.seq_number && my_sorce_id(response)) {
                     acked = true;
                     break;
                 }
@@ -137,12 +177,14 @@ void send_file(const char* ip, int port, const char* filename, int frame_size, i
     auto end = chrono::steady_clock::now();
     int duration = chrono::duration_cast<chrono::milliseconds>(end - start).count();
 
-    cerr << "Sent file " << filename << endl;
+    // Log the results ('Sent file', 'Result', 'File size', 'Total transfer time', 'Transmissions/frame', 'Average bandwidth')
+    cout << "Sent file: " << filename << endl;
     cerr << "Result: " << (success ? "Success :)" : "Failure :(") << endl;
-    cerr << "File size: " << frames.size() * MAX_PAYLOAD_SIZE << " Bytes (" << frames.size() << " frames)" << endl;
+    cerr << "File size: " << file_size << " Bytes (" << frames.size() << " frames)" << endl;
     cerr << "Total transfer time: " << duration << " milliseconds" << endl;
     cerr << "Transmissions/frame: average " << (double)total_transmissions / frames.size() << ", maximum " << max_trans_per_frame << endl;
-    cerr << "Average bandwidth: " << (frames.size() * MAX_PAYLOAD_SIZE * 8.0) / (duration * 1000.0) << " Mbps" << endl;
+    cerr << "Average bandwidth: " << (frames.size() * frames[0].header.payload_length * 8.0) / (duration * 1000.0) << " Mbps" << endl;
+
     close(sock);
 }
 
