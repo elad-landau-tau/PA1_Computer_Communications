@@ -1,0 +1,5 @@
+#!/bin/bash
+
+./my_Server 127.0.0.1 1234 daniel/mobydick.txt 1500 1 123 5 &
+./my_Server 127.0.0.1 1234 daniel/mobydick.txt 1500 1 123 5 &
+

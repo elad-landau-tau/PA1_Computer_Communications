@@ -21,6 +21,7 @@ struct ServerInfo {
     int sockfd;
     int frames = 0;
     int collisions = 0;
+    bool is_dead = false;
 };
 
 vector<ServerInfo> servers;
@@ -95,6 +96,7 @@ void channel_loop(int port, int slot_time) {
         FD_SET(listener, &fds);
         int maxfd = max(listener, STDIN_FILENO);
         for (auto& server : servers) {
+            if (server.is_dead) continue;
             FD_SET(server.sockfd, &fds);
             maxfd = max(maxfd, server.sockfd);
         }
@@ -122,25 +124,21 @@ void channel_loop(int port, int slot_time) {
 
         Frame received_frame;
         vector<int> ready;
-        vector<int> done_servers;
-        for (size_t i = 0; i < servers.size(); i++) {
-            ServerInfo &server = servers[i];
+        for (auto &server : servers) {
+            if (server.is_dead) continue;
             if (FD_ISSET(server.sockfd, &fds)) {
                 int res = recv(server.sockfd, &received_frame, sizeof(Frame), 0);
                 if (res == 0) {
-                    done_servers.push_back(i);
+                    server.is_dead = true;
                     continue;
                 }
                 ready.push_back(server.sockfd);
             }
         }
-        reverse(done_servers.begin(), done_servers.end());
-        for (int done_server : done_servers) {
-            servers.erase(next(servers.begin(), done_server));
-        }
 
         if (ready.size() == 1) {
             for (auto& server : servers) {
+                if (server.is_dead) continue;
                 static int num_acks;
                 num_acks++;
                 cout << "Going to send ACK no. " << num_acks << endl;
@@ -154,6 +152,7 @@ void channel_loop(int port, int slot_time) {
                 sock_to_server[sock]->collisions++;
             }
             for (auto& server : servers) {
+                if (server.is_dead) continue;
                 send(server.sockfd, &noise, sizeof(noise), 0);
             }
         }
@@ -176,6 +175,7 @@ int main(int argc, char* argv[]) {
         cerr << "Usage: ./my_channel.exe <chan_port> <slot_time>" << endl;
         return 1;
     }
+    signal(SIGPIPE, SIG_IGN);
     channel_loop(stoi(argv[1]), stoi(argv[2]));
     report_stats();
     return 0;
