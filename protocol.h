@@ -11,12 +11,6 @@
 #define DATA_FLAG 0x01
 #define IPv4_FLAG 0x0800
 
-// Custom frame structure
-struct Frame {
-    FrameHeader header;
-    char* payload;
-};
-
 // Custom frame header
 struct FrameHeader {
     uint8_t dest_id[6];                   // destination identifier (MAC-style)
@@ -27,15 +21,15 @@ struct FrameHeader {
     uint32_t payload_length;              // length of payload
 };
 
+// Custom frame structure
+struct Frame {
+    FrameHeader header;
+    char *payload;
+};
+
 // Function to create a noise frame
 inline void create_noise_frame(Frame& frame) {
-    frame.header.dest_id = {0, 0, 0, 0, 0, 0}; // No specific destination for noise
-    frame.header.source_id = {0, 0, 0, 0, 0, 0}; // No specific source for noise
-    frame.header.seq_number = 0; // No sequence number for noise
     frame.header.payload_type = NOISE_FLAG;
-    frame.header.payload_length = 0;
-    frame.payload = nullptr; // No payload for noise frames
-
 }
 
 // Function to check if a frame is a noise frame

@@ -58,13 +58,23 @@ bool my_sorce_id(Frame& frame) {
  *       is implemented when using this function.
  */
 int connect_to_channel(const char* ip, int port) {
+    int res;
     int sock = socket(AF_INET, SOCK_STREAM, 0);
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
     inet_pton(AF_INET, ip, &addr.sin_addr);
-    connect(sock, (sockaddr*)&addr, sizeof(addr));
+    do {
+        res = connect(sock, (sockaddr*)&addr, sizeof(addr));
+    } while (res == -1);
     return sock;
+}
+
+char *flatten_frame(const Frame &frame) {
+    char *result = new char[sizeof(FrameHeader) + frame.header.payload_length];
+    memcpy(result, (void*)&frame.header, sizeof frame.header);
+    memcpy(result + sizeof frame.header, frame.payload, frame.header.payload_length);
+    return result;
 }
 
 /**
@@ -112,6 +122,7 @@ void send_file(const char* ip, int port, const char* filename, int frame_size, i
     file.seekg(0, ios::end);
     file_size = file.tellg();
     file.seekg(0, ios::beg);
+    cout << "Length: " << file_size << endl;
 
     if (file_size <= 0) {
         cerr << "Error: File is empty or cannot be read." << endl;
@@ -120,10 +131,12 @@ void send_file(const char* ip, int port, const char* filename, int frame_size, i
 
     vector<Frame> frames;
     uint32_t seq = 0;
-    while (!file.eof()) {
+    while (true) {
         Frame frame;
         frame.header.seq_number = seq++;
-        frame.header.payload_length = min(frame_size, (int)(file.tellg() - file.tellg()));
+        frame.header.payload_length = min(frame_size, (int)(file_size - file.tellg()));
+        cout << frame.header.payload_length << endl;
+        if (frame.header.payload_length == 0) break;
         frame.payload = new char[frame.header.payload_length];
         file.read(frame.payload, frame.header.payload_length);
         frames.push_back(frame);
@@ -145,9 +158,11 @@ void send_file(const char* ip, int port, const char* filename, int frame_size, i
 
         set_sorce_dest_id(frame);
 
+        char *flattened_frame = flatten_frame(frame);
+        fwrite(flattened_frame, 1, sizeof(FrameHeader) + frame.header.payload_length, stdout);
         while (attempts < MAX_ATTEMPTS) {
             ++attempts;
-            send(sock, &frame, HEADER_SIZE + frame.header.payload_length, 0);
+            send(sock, flattened_frame, sizeof(FrameHeader) + frame.header.payload_length, 0);
             Frame response;
             fd_set fds;
             FD_ZERO(&fds);
@@ -166,12 +181,14 @@ void send_file(const char* ip, int port, const char* filename, int frame_size, i
             int backoff_time = backoff_dist(rng) * slot_time;
             this_thread::sleep_for(chrono::milliseconds(backoff_time));
         }
+        cout << "Acked: " << acked << endl;
         total_transmissions += attempts;
         max_trans_per_frame = max(max_trans_per_frame, attempts);
         if (!acked) {
             success = false;
             break;
         }
+        delete flattened_frame;
     }
 
     auto end = chrono::steady_clock::now();

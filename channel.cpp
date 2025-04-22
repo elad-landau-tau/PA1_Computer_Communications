@@ -15,21 +15,21 @@
 
 using namespace std;
 
-struct ClientInfo {
+struct ServerInfo {
     sockaddr_in addr;
     int sockfd;
     int frames = 0;
     int collisions = 0;
 };
 
-vector<ClientInfo> clients;
-unordered_map<int, ClientInfo*> sock_to_client;
+vector<ServerInfo> servers;
+unordered_map<int, ServerInfo*> sock_to_server;
 
 /**
  * @brief Sets up a server socket to listen for incoming connections.
  * 
  * This function creates a non-blocking server socket, binds it to the specified
- * port, and prepares it to listen for incoming client connections.
+ * port, and prepares it to listen for incoming server connections.
  * 
  * @param port The port number on which the server will listen for connections.
  * @param listener A reference to an integer where the created server socket's
@@ -58,28 +58,28 @@ void setup_server(int port, int& listener) {
 }
 
 /**
- * @brief Handles the main loop for a communication channel, managing client connections,
+ * @brief Handles the main loop for a communication channel, managing server connections,
  *        receiving frames, and broadcasting frames or noise based on channel activity.
  * 
  * @param port The port number on which the server listens for incoming connections.
  * @param slot_time The time slot duration (in milliseconds) used for the select timeout.
  * 
  * This function performs the following tasks:
- * - Sets up a server socket to listen for incoming client connections.
+ * - Sets up a server socket to listen for incoming server connections.
  * - Uses the `select` system call to monitor multiple sockets for activity.
- * - Accepts new client connections and adds them to the list of managed clients.
- * - Receives frames from clients and determines whether to broadcast the frame or
+ * - Accepts new server connections and adds them to the list of managed servers.
+ * - Receives frames from servers and determines whether to broadcast the frame or
  *   send a noise frame in case of collisions.
- * - Tracks the number of frames successfully sent and collisions for each client.
+ * - Tracks the number of frames successfully sent and collisions for each server.
  * 
  * Behavior:
- * - If only one client sends a frame during a time slot, the frame is broadcast to all clients.
- * - If multiple clients send frames simultaneously, a noise frame is sent to all clients,
- *   and collisions are recorded for the involved clients.
+ * - If only one server sends a frame during a time slot, the frame is broadcast to all servers.
+ * - If multiple servers send frames simultaneously, a noise frame is sent to all servers,
+ *   and collisions are recorded for the involved servers.
  * 
  * Note:
  * - The function runs indefinitely in a loop and must be terminated externally.
- * - Non-blocking sockets are used for client connections.
+ * - Non-blocking sockets are used for server connections.
  */
 void channel_loop(int port, int slot_time) {
     int listener;
@@ -91,9 +91,9 @@ void channel_loop(int port, int slot_time) {
         FD_ZERO(&fds);
         FD_SET(listener, &fds);
         int maxfd = listener;
-        for (auto& client : clients) {
-            FD_SET(client.sockfd, &fds);
-            maxfd = max(maxfd, client.sockfd);
+        for (auto& server : servers) {
+            FD_SET(server.sockfd, &fds);
+            maxfd = max(maxfd, server.sockfd);
         }
 
         timeval tv{0, slot_time * 1000};
@@ -102,33 +102,33 @@ void channel_loop(int port, int slot_time) {
         if (FD_ISSET(listener, &fds)) {
             sockaddr_in cli_addr;
             socklen_t len = sizeof(cli_addr);
-            int client_sock = accept(listener, (sockaddr*)&cli_addr, &len);
-            fcntl(client_sock, F_SETFL, O_NONBLOCK);
-            clients.push_back({cli_addr, client_sock});
-            sock_to_client[client_sock] = &clients.back();
+            int server_sock = accept(listener, (sockaddr*)&cli_addr, &len);
+            fcntl(server_sock, F_SETFL, O_NONBLOCK);
+            servers.push_back({cli_addr, server_sock});
+            sock_to_server[server_sock] = &servers.back();
         }
 
         vector<int> ready;
-        for (auto& client : clients) {
-            if (FD_ISSET(client.sockfd, &fds)) {
-                recv(client.sockfd, &buffer[client.sockfd], sizeof(Frame), 0);
-                ready.push_back(client.sockfd);
+        for (auto& server : servers) {
+            if (FD_ISSET(server.sockfd, &fds)) {
+                recv(server.sockfd, &buffer[server.sockfd], sizeof(Frame), 0);
+                ready.push_back(server.sockfd);
             }
         }
 
         if (ready.size() == 1) {
-            for (auto& client : clients) {
-                send(client.sockfd, &buffer[ready[0]], sizeof(FrameHeader) + buffer[ready[0]].header.length, 0);
+            for (auto& server : servers) {
+                send(server.sockfd, &buffer[ready[0]], sizeof(FrameHeader) + buffer[ready[0]].header.payload_length, 0);
             }
-            sock_to_client[ready[0]]->frames++;
+            sock_to_server[ready[0]]->frames++;
         } else if (ready.size() > 1) {
             Frame noise;
             create_noise_frame(noise);
             for (auto& sock : ready) {
-                sock_to_client[sock]->collisions++;
+                sock_to_server[sock]->collisions++;
             }
-            for (auto& client : clients) {
-                send(client.sockfd, &noise, sizeof(noise), 0);
+            for (auto& server : servers) {
+                send(server.sockfd, &noise, sizeof(noise), 0);
             }
         }
     }
@@ -136,8 +136,8 @@ void channel_loop(int port, int slot_time) {
 
 void on_ctrl_c(int signal) {
     (void)signal;
-    for (auto& client : clients) {
-        cout << "From ?.?.?.? port ????: " << client.frames << " frames, " << client.collisions << " collisions" << endl;
+    for (auto& server : servers) {
+        cout << "From ?.?.?.? port ????: " << server.frames << " frames, " << server.collisions << " collisions" << endl;
     }
     exit(0);
 }
