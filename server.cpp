@@ -70,13 +70,6 @@ int connect_to_channel(const char* ip, int port) {
     return sock;
 }
 
-char *flatten_frame(const Frame &frame) {
-    char *result = new char[sizeof(FrameHeader) + frame.header.payload_length];
-    memcpy(result, (void*)&frame.header, sizeof frame.header);
-    memcpy(result + sizeof frame.header, frame.payload, frame.header.payload_length);
-    return result;
-}
-
 /**
  * @brief Sends a file over a network channel using a custom protocol with retransmissions and backoff.
  * 
@@ -137,13 +130,17 @@ void send_file(const char* ip, int port, const char* filename, int frame_size, i
         frame.header.payload_length = min(frame_size, (int)(file_size - file.tellg()));
         cout << frame.header.payload_length << endl;
         if (frame.header.payload_length == 0) break;
-        frame.payload = new char[frame.header.payload_length];
         file.read(frame.payload, frame.header.payload_length);
         frames.push_back(frame);
     }
     file.close();
 
+    for (auto& f : frames) {
+        cout << "Payload length: " << f.header.payload_length << endl;
+    }
+
     int sock = connect_to_channel(ip, port);
+    cout << "connected" << endl;
     default_random_engine rng(seed);
     uniform_int_distribution<int> backoff_dist;
     auto start = chrono::steady_clock::now();
@@ -158,11 +155,9 @@ void send_file(const char* ip, int port, const char* filename, int frame_size, i
 
         set_sorce_dest_id(frame);
 
-        char *flattened_frame = flatten_frame(frame);
-        fwrite(flattened_frame, 1, sizeof(FrameHeader) + frame.header.payload_length, stdout);
         while (attempts < MAX_ATTEMPTS) {
             ++attempts;
-            send(sock, flattened_frame, sizeof(FrameHeader) + frame.header.payload_length, 0);
+            send(sock, &frame, sizeof(FrameHeader) + frame.header.payload_length, 0);
             Frame response;
             fd_set fds;
             FD_ZERO(&fds);
@@ -188,7 +183,6 @@ void send_file(const char* ip, int port, const char* filename, int frame_size, i
             success = false;
             break;
         }
-        delete flattened_frame;
     }
 
     auto end = chrono::steady_clock::now();

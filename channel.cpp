@@ -12,6 +12,7 @@
 #include <arpa/inet.h>
 #include <sys/select.h>
 #include <signal.h>
+#include <algorithm>
 
 using namespace std;
 
@@ -85,19 +86,29 @@ void channel_loop(int port, int slot_time) {
     int listener;
     setup_server(port, listener);
     fd_set fds;
-    Frame buffer[FD_SETSIZE];
+
+    fcntl(STDIN_FILENO, F_SETFL, O_NONBLOCK);
 
     while (true) {
         FD_ZERO(&fds);
+        FD_SET(STDIN_FILENO, &fds);
         FD_SET(listener, &fds);
-        int maxfd = listener;
+        int maxfd = max(listener, STDIN_FILENO);
         for (auto& server : servers) {
             FD_SET(server.sockfd, &fds);
             maxfd = max(maxfd, server.sockfd);
         }
 
         timeval tv{0, slot_time * 1000};
-        select(maxfd + 1, &fds, nullptr, nullptr, &tv);
+        int num_ready = select(maxfd + 1, &fds, nullptr, nullptr, &tv);
+        if (num_ready != 0) cout << "ready: " << num_ready << endl;
+
+        if (FD_ISSET(STDIN_FILENO, &fds)) {
+            char buff;
+            if (read(STDIN_FILENO, &buff, sizeof buff) == 0) {
+                break;
+            }
+        }
 
         if (FD_ISSET(listener, &fds)) {
             sockaddr_in cli_addr;
@@ -108,17 +119,31 @@ void channel_loop(int port, int slot_time) {
             sock_to_server[server_sock] = &servers.back();
         }
 
+        Frame received_frame;
         vector<int> ready;
-        for (auto& server : servers) {
+        vector<int> done_servers;
+        for (size_t i = 0; i < servers.size(); i++) {
+            ServerInfo &server = servers[i];
             if (FD_ISSET(server.sockfd, &fds)) {
-                recv(server.sockfd, &buffer[server.sockfd], sizeof(Frame), 0);
+                int res = recv(server.sockfd, &received_frame, sizeof(Frame), 0);
+                if (res == 0) {
+                    done_servers.push_back(i);
+                    continue;
+                }
                 ready.push_back(server.sockfd);
             }
+        }
+        reverse(done_servers.begin(), done_servers.end());
+        for (int done_server : done_servers) {
+            servers.erase(next(servers.begin(), done_server));
         }
 
         if (ready.size() == 1) {
             for (auto& server : servers) {
-                send(server.sockfd, &buffer[ready[0]], sizeof(FrameHeader) + buffer[ready[0]].header.payload_length, 0);
+                static int num_acks;
+                num_acks++;
+                cout << "Going to send ACK no. " << num_acks << endl;
+                send(server.sockfd, &received_frame, sizeof(FrameHeader) + received_frame.header.payload_length, 0);
             }
             sock_to_server[ready[0]]->frames++;
         } else if (ready.size() > 1) {
@@ -134,11 +159,14 @@ void channel_loop(int port, int slot_time) {
     }
 }
 
-void on_ctrl_c(int signal) {
-    (void)signal;
+void report_stats() {
     for (auto& server : servers) {
-        cout << "From ?.?.?.? port ????: " << server.frames << " frames, " << server.collisions << " collisions" << endl;
+        char ip_str[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &server.addr.sin_addr, ip_str, sizeof(ip_str));
+        cerr << "From " << ip_str << " port " << ntohs(server.addr.sin_port)
+           << ": " << server.frames << " frames, " << server.collisions << " collisions" << endl;
     }
+    cout << "end of report" << endl;
     exit(0);
 }
 
@@ -147,11 +175,7 @@ int main(int argc, char* argv[]) {
         cerr << "Usage: ./my_channel.exe <chan_port> <slot_time>" << endl;
         return 1;
     }
-    struct sigaction ctrl_c_action = {};
-    ctrl_c_action.sa_handler = on_ctrl_c;
-    sigemptyset(&ctrl_c_action.sa_mask);
-    ctrl_c_action.sa_flags = 0;
-    sigaction(SIGINT, &ctrl_c_action, nullptr);
     channel_loop(stoi(argv[1]), stoi(argv[2]));
+    report_stats();
     return 0;
 }

@@ -15,10 +15,10 @@ CXXFLAGS = -std=c++17 -Wall -Wextra -g
 
 all: $(MY_SERVER) $(MY_CHANNEL)
 
-$(MY_SERVER): server.cpp
+$(MY_SERVER): protocol.h server.cpp
 	$(CXX) $(CXXFLAGS) server.cpp -o my_Server
 
-$(MY_CHANNEL): channel.cpp
+$(MY_CHANNEL): protocol.h channel.cpp
 	$(CXX) $(CXXFLAGS) channel.cpp -o my_channel
 
 clean:

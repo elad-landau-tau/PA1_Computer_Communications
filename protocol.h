@@ -11,6 +11,9 @@
 #define DATA_FLAG 0x01
 #define IPv4_FLAG 0x0800
 
+#define MAX_FRAME_SIZE 4096
+#define MAX_PAYLOAD_SIZE (MAX_FRAME_SIZE - sizeof(FrameHeader))
+
 // Custom frame header
 struct FrameHeader {
     uint8_t dest_id[6];                   // destination identifier (MAC-style)
@@ -24,7 +27,7 @@ struct FrameHeader {
 // Custom frame structure
 struct Frame {
     FrameHeader header;
-    char *payload;
+    char payload[MAX_PAYLOAD_SIZE];
 };
 
 // Function to create a noise frame
