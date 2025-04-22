@@ -101,7 +101,8 @@ void channel_loop(int port, int slot_time) {
 
         timeval tv{0, slot_time * 1000};
         int num_ready = select(maxfd + 1, &fds, nullptr, nullptr, &tv);
-        if (num_ready != 0) cout << "ready: " << num_ready << endl;
+        if (num_ready == 0) continue;
+        cout << "ready: " << num_ready << endl;
 
         if (FD_ISSET(STDIN_FILENO, &fds)) {
             char buff;
