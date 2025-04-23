@@ -9,7 +9,7 @@ else
 endif
 
 CXX = g++
-CXXFLAGS = -std=c++17 -Wall -Wextra -g
+CXXFLAGS = -std=c++17 -Wall -Wextra -Wpedantic -g
 
 .PHONY: all clean
 

@@ -2,7 +2,6 @@
 #include "protocol.h"
 #include <iostream>
 #include <vector>
-#include <unordered_map>
 #include <thread>
 #include <chrono>
 #include <sys/socket.h>
@@ -12,10 +11,10 @@
 #include <arpa/inet.h>
 #include <sys/select.h>
 #include <signal.h>
-#include <algorithm>
 
 using namespace std;
 
+// Information about a server currently or previously connected to this channel.
 struct ServerInfo {
     sockaddr_in addr;
     int sockfd;
@@ -24,28 +23,14 @@ struct ServerInfo {
     bool is_dead = false;
 };
 
+// All the servers that have ever connected to the channel.
 vector<ServerInfo> servers;
-unordered_map<int, ServerInfo*> sock_to_server;
 
-/**
- * @brief Sets up a server socket to listen for incoming connections.
- * 
- * This function creates a non-blocking server socket, binds it to the specified
- * port, and prepares it to listen for incoming server connections.
- * 
- * @param port The port number on which the server will listen for connections.
- * @param listener A reference to an integer where the created server socket's
- *                 file descriptor will be stored.
- * 
- * @note The socket is configured with the SO_REUSEADDR option to allow reuse
- *       of local addresses. The listener socket is set to non-blocking mode.
- * 
- * @throws This function does not explicitly handle errors. It is the caller's
- *         responsibility to check for errors in socket creation, binding, and
- *         other operations.
- */
-void setup_server(int port, int& listener) {
-    listener = socket(AF_INET, SOCK_STREAM, 0);
+// Gets a port number.
+// Creates a listening socket to listen for incoming connections in that port.
+// Returns the socket.
+int setup_server(int port) {
+    int listener = socket(AF_INET, SOCK_STREAM, 0);
     int opt = 1;
     setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
@@ -55,42 +40,27 @@ void setup_server(int port, int& listener) {
     addr.sin_addr.s_addr = INADDR_ANY;
 
     bind(listener, (sockaddr*)&addr, sizeof(addr));
-    listen(listener, 10);
+    listen(listener, 128);
     fcntl(listener, F_SETFL, O_NONBLOCK);
+    return listener;
 }
 
-/**
- * @brief Handles the main loop for a communication channel, managing server connections,
- *        receiving frames, and broadcasting frames or noise based on channel activity.
- * 
- * @param port The port number on which the server listens for incoming connections.
- * @param slot_time The time slot duration (in milliseconds) used for the select timeout.
- * 
- * This function performs the following tasks:
- * - Sets up a server socket to listen for incoming server connections.
- * - Uses the `select` system call to monitor multiple sockets for activity.
- * - Accepts new server connections and adds them to the list of managed servers.
- * - Receives frames from servers and determines whether to broadcast the frame or
- *   send a noise frame in case of collisions.
- * - Tracks the number of frames successfully sent and collisions for each server.
- * 
- * Behavior:
- * - If only one server sends a frame during a time slot, the frame is broadcast to all servers.
- * - If multiple servers send frames simultaneously, a noise frame is sent to all servers,
- *   and collisions are recorded for the involved servers.
- * 
- * Note:
- * - The function runs indefinitely in a loop and must be terminated externally.
- * - Non-blocking sockets are used for server connections.
- */
+// Gets the arguments to the program (argv), already converted to ints.
+// Runs a channel.
+// Stores statistics about received and sent frames.
+// This function returns when the user pressed CTRL+D (EOF).
 void channel_loop(int port, int slot_time) {
-    int listener;
-    setup_server(port, listener);
-    fd_set fds;
+    // Create listening port.
+    int listener = setup_server(port);
 
+    // Change stdin mode to non-blocking.
     fcntl(STDIN_FILENO, F_SETFL, O_NONBLOCK);
 
+    // Repeatedly listen for requests and serve them (unless there are collisions).
     while (true) {
+        // Create the set of fd's to which we want to listen.
+        // These fd's are: stdin, the listening socket, and the servers' sockets.
+        fd_set fds;
         FD_ZERO(&fds);
         FD_SET(STDIN_FILENO, &fds);
         FD_SET(listener, &fds);
@@ -101,11 +71,15 @@ void channel_loop(int port, int slot_time) {
             maxfd = max(maxfd, server.sockfd);
         }
 
+        // Listen to fd's for slot_time.
         timeval tv{0, slot_time * 1000};
         int num_ready = select(maxfd + 1, &fds, nullptr, nullptr, &tv);
         if (num_ready == 0) continue;
+#ifdef DEBUG
         cout << "ready: " << num_ready << endl;
+#endif
 
+        // If got EOF in stdin, stop program.
         if (FD_ISSET(STDIN_FILENO, &fds)) {
             char buff;
             if (read(STDIN_FILENO, &buff, sizeof buff) == 0) {
@@ -113,45 +87,54 @@ void channel_loop(int port, int slot_time) {
             }
         }
 
+        // If the listener got a new server, add it to the list of servers.
         if (FD_ISSET(listener, &fds)) {
             sockaddr_in cli_addr;
             socklen_t len = sizeof(cli_addr);
             int server_sock = accept(listener, (sockaddr*)&cli_addr, &len);
             fcntl(server_sock, F_SETFL, O_NONBLOCK);
             servers.push_back({cli_addr, server_sock});
-            sock_to_server[server_sock] = &servers.back();
         }
 
+        // Receive frames from all servers that sent a frame.
+        // Create a vector of servers that sent a frame.
         Frame received_frame;
         vector<ServerInfo*> ready;
         for (auto &server : servers) {
-            if (server.is_dead) continue;
-            if (FD_ISSET(server.sockfd, &fds)) {
-                int res = recv(server.sockfd, &received_frame, sizeof(Frame), 0);
-                if (res == 0) {
-                    server.is_dead = true;
-                    continue;
-                }
-                ready.push_back(&server);
+            if (server.is_dead || !FD_ISSET(server.sockfd, &fds)) continue;
+            int res = recv(server.sockfd, &received_frame, sizeof(Frame), 0);
+            if (res == 0) {
+                server.is_dead = true;
+                continue;
             }
+            ready.push_back(&server);
         }
 
+        // If exactly one frame was received, there is no collision.
         if (ready.size() == 1) {
+            // Resend frame to all connected (and alive) servers.
             for (auto& server : servers) {
                 if (server.is_dead) continue;
+#ifdef DEBUG
                 static int num_acks;
                 num_acks++;
                 cout << "Going to send ACK no. " << num_acks << endl;
+#endif
                 send(server.sockfd, &received_frame, sizeof(FrameHeader) + received_frame.header.payload_length, 0);
             }
+            // Increment frame count on the sending server.
             ready[0]->frames++;
-        } else if (ready.size() > 1) {
-            Frame noise;
-            create_noise_frame(noise);
+        }
+        // If more than one frame was received, there is a collision.
+        else if (ready.size() > 1) {
+            // Increment collision count on all servers that participated in the collision.
             for (auto& server : ready) {
                 if (server->is_dead) continue;
                 server->collisions++;
             }
+            // Send a noise frame to everyone.
+            Frame noise;
+            create_noise_frame(noise);
             for (auto& server : servers) {
                 if (server.is_dead) continue;
                 send(server.sockfd, &noise, sizeof(noise), 0);
@@ -160,6 +143,7 @@ void channel_loop(int port, int slot_time) {
     }
 }
 
+// Display statistics about received frames and collisions.
 void report_stats() {
     for (auto& server : servers) {
         char ip_str[INET_ADDRSTRLEN];
@@ -167,7 +151,9 @@ void report_stats() {
         cerr << "From " << ip_str << " port " << ntohs(server.addr.sin_port)
            << ": " << server.frames << " frames, " << server.collisions << " collisions" << endl;
     }
+#ifdef DEBUG
     cout << "end of report" << endl;
+#endif
     exit(0);
 }
 
