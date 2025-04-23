@@ -75,7 +75,9 @@ bool receive_frame(int channel_fd, timeval &timeout, Frame &output) {
 // Meanwhile, if any frames arive via the channel (in `channel_fd`),
 // this function receives and ignores them.
 void wait_and_drop_frames(int time_ms, int channel_fd) {
+#ifdef DEBUG
     cout << "wait_and_drop_frames(" << time_ms << ", " << channel_fd << ")" << endl;
+#endif
     Frame ignored_frame;
     timeval now, wait_until;
     gettimeofday(&now, nullptr);
