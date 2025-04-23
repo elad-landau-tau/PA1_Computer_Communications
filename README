@@ -1,5 +1,9 @@
 // README
-This project implements a simplified simulation of an ALOHA-style MAC protocol using TCP sockets in C++.
+
+This project implements a simplified simulation of an ALOHA-style MAC protocol using TCP sockets in C++ In Linux OS.
+
+Elad Landau — 206999054  
+Daniel David Goren — 322610874
 
 ## Files
 - `server.cpp`: The server application that sends a file in fixed-size frames using TCP to a shared channel.
