@@ -123,7 +123,7 @@ void channel_loop(int port, int slot_time) {
         }
 
         Frame received_frame;
-        vector<int> ready;
+        vector<ServerInfo*> ready;
         for (auto &server : servers) {
             if (server.is_dead) continue;
             if (FD_ISSET(server.sockfd, &fds)) {
@@ -132,7 +132,7 @@ void channel_loop(int port, int slot_time) {
                     server.is_dead = true;
                     continue;
                 }
-                ready.push_back(server.sockfd);
+                ready.push_back(&server);
             }
         }
 
@@ -144,12 +144,13 @@ void channel_loop(int port, int slot_time) {
                 cout << "Going to send ACK no. " << num_acks << endl;
                 send(server.sockfd, &received_frame, sizeof(FrameHeader) + received_frame.header.payload_length, 0);
             }
-            sock_to_server[ready[0]]->frames++;
+            ready[0]->frames++;
         } else if (ready.size() > 1) {
             Frame noise;
             create_noise_frame(noise);
-            for (auto& sock : ready) {
-                sock_to_server[sock]->collisions++;
+            for (auto& server : ready) {
+                if (server->is_dead) continue;
+                server->collisions++;
             }
             for (auto& server : servers) {
                 if (server.is_dead) continue;
