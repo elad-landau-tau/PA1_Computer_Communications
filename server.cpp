@@ -232,6 +232,10 @@ int main(int argc, char* argv[]) {
         cerr << "Usage: ./my_Server <chan_ip> <chan_port> <file_name> <frame_size> <slot_time> <seed> <timeout>" << endl;
         return 1;
     }
+    if (stoi(argv[4]) > MAX_PAYLOAD_SIZE) {
+        cerr << "Error: Frame size too large. Maximum is " << MAX_PAYLOAD_SIZE << " bytes." << endl;
+        return 1;
+    }
     send_file(argv[1], stoi(argv[2]), argv[3], stoi(argv[4]), stoi(argv[5]), stoi(argv[6]), stoi(argv[7]));
     return 0;
 }

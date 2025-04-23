@@ -149,7 +149,7 @@ void report_stats() {
         char ip_str[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &server.addr.sin_addr, ip_str, sizeof(ip_str));
         cerr << "From " << ip_str << " port " << ntohs(server.addr.sin_port)
-           << ": " << server.frames << " frames, " << server.collisions << " collisions" << endl;
+           << ": " /*<< server.frames << " frames, " */<< server.collisions << " collisions" << endl;
     }
 #ifdef DEBUG
     cout << "end of report" << endl;
