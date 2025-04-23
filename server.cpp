@@ -10,6 +10,7 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <sys/time.h>
 #include <unistd.h>
 
 using namespace std;
@@ -68,6 +69,32 @@ int connect_to_channel(const char* ip, int port) {
         res = connect(sock, (sockaddr*)&addr, sizeof(addr));
     } while (res == -1);
     return sock;
+}
+
+bool receive_frame(int channel_fd, timeval &timeout, Frame &output) {
+    fd_set fds;
+    FD_ZERO(&fds);
+    FD_SET(channel_fd, &fds);
+    int ret = select(channel_fd + 1, &fds, nullptr, nullptr, &timeout);
+    if (ret <= 0) return false;
+    recv(channel_fd, &output, sizeof output, 0);
+    return true;
+}
+
+void wait_and_drop_frames(int time_ms, int channel_fd) {
+    cout << "wait_and_drop_frames(" << time_ms << ", " << channel_fd << ")" << endl;
+    Frame ignored_frame;
+    timeval now, wait_until;
+    gettimeofday(&now, nullptr);
+    timeval wait_time{0, time_ms * 1000};
+    timeradd(&now, &wait_time, &wait_until);
+    for (; timercmp(&now, &wait_until, <); gettimeofday(&now, nullptr)) {
+        timeval remaining_time;
+        timersub(&wait_until, &now, &remaining_time);
+        receive_frame(channel_fd, remaining_time, ignored_frame);
+    }
+    timeval zero_time{0, 0};
+    while (receive_frame(channel_fd, zero_time, ignored_frame)) {}
 }
 
 /**
@@ -159,22 +186,20 @@ void send_file(const char* ip, int port, const char* filename, int frame_size, i
             ++attempts;
             send(sock, &frame, sizeof(FrameHeader) + frame.header.payload_length, 0);
             Frame response;
-            fd_set fds;
-            FD_ZERO(&fds);
-            FD_SET(sock, &fds);
             timeval tv{timeout, 0};
-            int ret = select(sock + 1, &fds, nullptr, nullptr, &tv);
-
-            if (ret > 0) {
-                recv(sock, &response, sizeof(response), 0);
-                if (!is_noise_frame(response) && response.header.seq_number == frame.header.seq_number && my_sorce_id(response)) {
-                    acked = true;
-                    break;
-                }
+            if (
+                receive_frame(sock, tv, response) &&
+                !is_noise_frame(response) &&
+                response.header.seq_number == frame.header.seq_number &&
+                my_sorce_id(response)
+            ) {
+                wait_and_drop_frames(slot_time, sock);
+                acked = true;
+                break;
             }
             backoff_dist = uniform_int_distribution<int>(0, (1 << min(attempts, 10)) - 1);
             int backoff_time = backoff_dist(rng) * slot_time;
-            this_thread::sleep_for(chrono::milliseconds(backoff_time));
+            wait_and_drop_frames(backoff_time, sock);
         }
         cout << "Acked: " << acked << endl;
         total_transmissions += attempts;
